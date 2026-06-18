@@ -568,7 +568,7 @@
                     </p>
                 </div>
                 <div class="file-zone" id="buktiZone">
-                    <input type="file" name="bukti" id="bukti" accept=".pdf,image/jpg,image/jpeg,image/png" required>
+                    <input type="file" name="bukti" id="bukti" accept=".pdf,image/jpg,image/jpeg,image/png">
                     <span class="file-zone-icon">📎</span>
                     <p class="file-zone-label">Klik atau seret file ke sini</p>
                     <p class="file-zone-hint">Format: PDF, JPG, PNG · Maks 10 MB</p>
