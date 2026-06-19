@@ -248,51 +248,67 @@ class AdminController extends Controller
      * Browser folder rekap bukti data dukung.
      * Struktur: uploads/{uptd_slug}/{tahun}/{bulan}/{jenis_tl_slug}/
      * Selalu menampilkan 4 folder jenis TL yang fixed.
+     *
+     * NOTE: Uses native PHP filesystem functions to avoid
+     * the `finfo` extension dependency in Flysystem.
      */
     public function rekapBerkas(Request $request)
     {
-        $disk       = Storage::disk('public');
-        $baseDir    = 'uploads';
+        $baseDiskPath = storage_path('app/public/uploads');
+        $baseStorageUrl = '/storage/uploads';
         $tree       = [];
         $totalFiles = 0;
 
         // 4 folder jenis TL yang selalu ditampilkan
-        $fixedTlList = Submission::jenisTlList(); // 4 items
+        $fixedTlList = Submission::jenisTlList();
         $tlMap = [];
         foreach ($fixedTlList as $tl) {
             $slug         = Str::slug($tl, '_');
             $tlMap[$slug] = $tl;
         }
 
-        if ($disk->exists($baseDir)) {
-            foreach ($disk->directories($baseDir) as $uptdDir) {
-                $uptdName      = basename($uptdDir);
+        if (is_dir($baseDiskPath)) {
+            foreach ($this->nativeDirectories($baseDiskPath) as $uptdName) {
+                $uptdDir       = $baseDiskPath . '/' . $uptdName;
                 $uptdFileCount = 0;
                 $years         = [];
 
-                foreach ($disk->directories($uptdDir) as $yearDir) {
-                    $year          = basename($yearDir);
+                foreach ($this->nativeDirectories($uptdDir) as $year) {
+                    // Skip non-numeric year directories
+                    if (!preg_match('/^\d{4}$/', $year)) {
+                        continue;
+                    }
+
+                    $yearDir       = $uptdDir . '/' . $year;
                     $yearFileCount = 0;
                     $months        = [];
 
-                    foreach ($disk->directories($yearDir) as $monthDir) {
-                        $month          = basename($monthDir);
+                    foreach ($this->nativeDirectories($yearDir) as $month) {
+                        // Skip non-numeric month directories
+                        if (!preg_match('/^\d{1,2}$/', $month)) {
+                            continue;
+                        }
+
+                        $monthDir       = $yearDir . '/' . $month;
                         $monthFileCount = 0;
                         $jenisTls       = [];
 
                         // Selalu tampilkan 4 folder jenis TL (meskipun kosong)
                         foreach ($tlMap as $tlSlug => $tlLabel) {
-                            $tlDir    = "{$monthDir}/{$tlSlug}";
+                            $tlDir    = $monthDir . '/' . $tlSlug;
                             $fileList = [];
 
-                            if ($disk->exists($tlDir)) {
-                                foreach ($disk->files($tlDir) as $file) {
+                            if (is_dir($tlDir)) {
+                                foreach ($this->nativeFiles($tlDir) as $fileName) {
+                                    $fullPath  = $tlDir . '/' . $fileName;
+                                    $relPath   = 'uploads/' . $uptdName . '/' . $year . '/' . $month . '/' . $tlSlug . '/' . $fileName;
+                                    $fileUrl   = $baseStorageUrl . '/' . $uptdName . '/' . $year . '/' . $month . '/' . $tlSlug . '/' . $fileName;
                                     $fileList[] = [
-                                        'name' => basename($file),
-                                        'path' => $file,
-                                        'size' => $disk->size($file),
-                                        'url'  => Storage::url($file),
-                                        'ext'  => strtolower(pathinfo($file, PATHINFO_EXTENSION)),
+                                        'name' => $fileName,
+                                        'path' => $relPath,
+                                        'size' => filesize($fullPath),
+                                        'url'  => $fileUrl,
+                                        'ext'  => strtolower(pathinfo($fileName, PATHINFO_EXTENSION)),
                                     ];
                                 }
                             }
@@ -346,16 +362,66 @@ class AdminController extends Controller
     }
 
     /**
-     * Download single berkas from storage.
+     * Download single berkas from storage (native, no finfo).
      */
     public function downloadBerkas(Request $request)
     {
         $path = $request->get('path');
 
-        if (!$path || !Storage::disk('public')->exists($path)) {
+        if (!$path) {
             abort(404, 'File tidak ditemukan.');
         }
 
-        return Storage::disk('public')->download($path, basename($path));
+        $fullPath = storage_path('app/public/' . $path);
+
+        if (!is_file($fullPath)) {
+            abort(404, 'File tidak ditemukan.');
+        }
+
+        return response()->download($fullPath, basename($fullPath));
+    }
+
+    /**
+     * List only subdirectories in a given path (native, no finfo).
+     */
+    private function nativeDirectories(string $path): array
+    {
+        if (!is_dir($path)) {
+            return [];
+        }
+
+        $dirs = [];
+        foreach (scandir($path) as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            if (is_dir($path . '/' . $entry)) {
+                $dirs[] = $entry;
+            }
+        }
+
+        return $dirs;
+    }
+
+    /**
+     * List only files in a given path (native, no finfo).
+     */
+    private function nativeFiles(string $path): array
+    {
+        if (!is_dir($path)) {
+            return [];
+        }
+
+        $files = [];
+        foreach (scandir($path) as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            if (is_file($path . '/' . $entry)) {
+                $files[] = $entry;
+            }
+        }
+
+        return $files;
     }
 }
